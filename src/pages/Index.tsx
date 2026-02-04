@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Upload, Download, Loader2, ImageIcon, Trash2, Paintbrush, Eraser, X, Check } from "lucide-react";
+import { Upload, Download, Loader2, ImageIcon, Trash2, Paintbrush, Eraser, X, Check, Info } from "lucide-react";
 import { removeBackground, loadImage } from "@/lib/removeBackground";
 import { applyMaskToImage } from "@/lib/preciseCut";
 import { useToast } from "@/hooks/use-toast";
@@ -11,8 +11,6 @@ const Index = () => {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
   const [processedImage, setProcessedImage] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isLoadingModel, setIsLoadingModel] = useState(false);
-  const [modelProgress, setModelProgress] = useState(0);
   const [fileName, setFileName] = useState<string>("");
   const [editMode, setEditMode] = useState<"auto" | "manual">("auto");
   const [brushMode, setBrushMode] = useState<"keep" | "remove">("keep");
@@ -43,26 +41,12 @@ const Index = () => {
     setProcessedImage(null);
     setEditMode("auto");
 
-    // Load model and prepare image
-    setIsLoadingModel(true);
-    setModelProgress(0);
-    
+    setIsProcessing(true);
     try {
-      await loadSAMModel((progress) => setModelProgress(progress));
-      
-      // Wait for image to load
-      const img = new Image();
-      img.src = url;
-      await new Promise((resolve) => { img.onload = resolve; });
-      
-      // Create canvas from image
-      canvasRef.current = createCanvasFromImage(img);
-      
-      // Prepare embeddings
-      const dims = await prepareImageEmbeddings(url);
-      setImageDimensions(dims);
-      setIsModelReady(true);
-      
+      const img = await loadImage(file);
+      const resultBlob = await removeBackground(img);
+      const resultUrl = URL.createObjectURL(resultBlob);
+      setProcessedImage(resultUrl);
       toast({
         title: "Success!",
         description: "Background removed successfully. Switch to Manual mode for precise editing.",
@@ -71,11 +55,11 @@ const Index = () => {
       console.error(error);
       toast({
         title: "Error",
-        description: "Failed to load model. Please try again.",
+        description: "Failed to remove background. Please try again.",
         variant: "destructive",
       });
     } finally {
-      setIsLoadingModel(false);
+      setIsProcessing(false);
     }
   }, [toast]);
 
@@ -365,24 +349,8 @@ const Index = () => {
           </Card>
         )}
 
-        {/* Loading Model */}
-        {isLoadingModel && (
-          <Card className="p-8 bg-card">
-            <div className="flex flex-col items-center justify-center space-y-4">
-              <Loader2 className="w-12 h-12 text-primary animate-spin" />
-              <h3 className="text-lg font-semibold">Loading AI Model...</h3>
-              <div className="w-full max-w-md">
-                <Progress value={modelProgress} className="h-2" />
-              </div>
-              <p className="text-sm text-muted-foreground">
-                {modelProgress}% - First time may take a moment to download (~50MB)
-              </p>
-            </div>
-          </Card>
-        )}
-
         {/* Image Preview */}
-        {originalImage && !isLoadingModel && (
+        {originalImage && (
           <div className="space-y-6">
             {/* Mode Toggle */}
             <div className="flex justify-center gap-2">

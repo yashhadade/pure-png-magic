@@ -11,6 +11,8 @@ const Index = () => {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
   const [processedImage, setProcessedImage] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isLoadingModel, setIsLoadingModel] = useState(false);
+  const [modelProgress, setModelProgress] = useState(0);
   const [fileName, setFileName] = useState<string>("");
   const [editMode, setEditMode] = useState<"auto" | "manual">("auto");
   const [brushMode, setBrushMode] = useState<"keep" | "remove">("keep");
@@ -41,12 +43,26 @@ const Index = () => {
     setProcessedImage(null);
     setEditMode("auto");
 
-    setIsProcessing(true);
+    // Load model and prepare image
+    setIsLoadingModel(true);
+    setModelProgress(0);
+    
     try {
-      const img = await loadImage(file);
-      const resultBlob = await removeBackground(img);
-      const resultUrl = URL.createObjectURL(resultBlob);
-      setProcessedImage(resultUrl);
+      await loadSAMModel((progress) => setModelProgress(progress));
+      
+      // Wait for image to load
+      const img = new Image();
+      img.src = url;
+      await new Promise((resolve) => { img.onload = resolve; });
+      
+      // Create canvas from image
+      canvasRef.current = createCanvasFromImage(img);
+      
+      // Prepare embeddings
+      const dims = await prepareImageEmbeddings(url);
+      setImageDimensions(dims);
+      setIsModelReady(true);
+      
       toast({
         title: "Success!",
         description: "Background removed successfully. Switch to Manual mode for precise editing.",
@@ -55,11 +71,11 @@ const Index = () => {
       console.error(error);
       toast({
         title: "Error",
-        description: "Failed to remove background. Please try again.",
+        description: "Failed to load model. Please try again.",
         variant: "destructive",
       });
     } finally {
-      setIsProcessing(false);
+      setIsLoadingModel(false);
     }
   }, [toast]);
 
@@ -279,7 +295,7 @@ const Index = () => {
     if (!processedImage) return;
     const a = document.createElement("a");
     a.href = processedImage;
-    a.download = `${fileName || "image"}-no-bg.png`;
+    a.download = `${fileName || "image"}-isolated.png`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -301,10 +317,10 @@ const Index = () => {
         {/* Header */}
         <div className="text-center mb-10">
           <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-3">
-            Background Remover
+            Subject Isolator
           </h1>
           <p className="text-muted-foreground text-lg">
-            Remove backgrounds from images instantly. 100% free, runs in your browser.
+            Click on any person to isolate them from group photos. 100% free, runs in your browser.
           </p>
         </div>
 
@@ -349,8 +365,24 @@ const Index = () => {
           </Card>
         )}
 
+        {/* Loading Model */}
+        {isLoadingModel && (
+          <Card className="p-8 bg-card">
+            <div className="flex flex-col items-center justify-center space-y-4">
+              <Loader2 className="w-12 h-12 text-primary animate-spin" />
+              <h3 className="text-lg font-semibold">Loading AI Model...</h3>
+              <div className="w-full max-w-md">
+                <Progress value={modelProgress} className="h-2" />
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {modelProgress}% - First time may take a moment to download (~50MB)
+              </p>
+            </div>
+          </Card>
+        )}
+
         {/* Image Preview */}
-        {originalImage && (
+        {originalImage && !isLoadingModel && (
           <div className="space-y-6">
             {/* Mode Toggle */}
             <div className="flex justify-center gap-2">
@@ -484,30 +516,30 @@ const Index = () => {
                     ref={maskCanvasRef}
                     className="hidden"
                   />
+                  {isProcessing && (
+                    <div className="absolute inset-0 bg-background/50 flex items-center justify-center">
+                      <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                    </div>
+                  )}
                 </div>
               </Card>
 
               {/* Processed */}
               <Card className="overflow-hidden bg-card">
                 <div className="p-4 border-b border-border">
-                  <h3 className="font-semibold text-foreground">Background Removed</h3>
+                  <h3 className="font-semibold text-foreground">Isolated Subject</h3>
                 </div>
                 <div className="p-4 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAiIGhlaWdodD0iMjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImNoZWNrZXJib2FyZCIgd2lkdGg9IjIwIiBoZWlnaHQ9IjIwIiBwYXR0ZXJuVW5pdHM9InVzZXJTcGFjZU9uVXNlIj48cmVjdCB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIGZpbGw9IiNmMGYwZjAiLz48cmVjdCB4PSIxMCIgeT0iMCIgd2lkdGg9IjEwIiBoZWlnaHQ9IjEwIiBmaWxsPSIjZmZmZmZmIi8+PHJlY3QgeD0iMCIgeT0iMTAiIHdpZHRoPSIxMCIgaGVpZ2h0PSIxMCIgZmlsbD0iI2ZmZmZmZiIvPjxyZWN0IHg9IjEwIiB5PSIxMCIgd2lkdGg9IjEwIiBoZWlnaHQ9IjEwIiBmaWxsPSIjZjBmMGYwIi8+PC9wYXR0ZXJuPjwvZGVmcz48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSJ1cmwoI2NoZWNrZXJib2FyZCkiLz48L3N2Zz4=')]">
-                  {isProcessing ? (
-                    <div className="flex flex-col items-center justify-center h-96">
-                      <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
-                      <p className="text-muted-foreground">Removing background...</p>
-                      <p className="text-xs text-muted-foreground mt-1">First time may take longer to load model</p>
-                    </div>
-                  ) : processedImage ? (
+                  {processedImage ? (
                     <img
                       src={processedImage}
-                      alt="Processed"
+                      alt="Isolated"
                       className="w-full h-auto max-h-96 object-contain rounded"
                     />
                   ) : (
-                    <div className="flex items-center justify-center h-96 text-muted-foreground">
-                      Processing failed
+                    <div className="flex flex-col items-center justify-center h-96 text-muted-foreground">
+                      <Info className="w-8 h-8 mb-2" />
+                      <p>Click on a person in the original image</p>
                     </div>
                   )}
                 </div>
@@ -532,7 +564,7 @@ const Index = () => {
                 className="min-w-40"
               >
                 <Trash2 className="w-4 h-4 mr-2" />
-                Remove & Try Another
+                Try Another Image
               </Button>
             </div>
           </div>
